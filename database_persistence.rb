@@ -11,66 +11,54 @@ class DatabasePersistence
     result = query(sql, id)
   
     tuple = result.first
-    {id: tuple["id"], name: tuple["name"], todos: []}
+    {id: tuple["id"], name: tuple["name"], todos: query_todos(id)}
   end
 
   def all_lists
     sql = "SELECT * FROM lists"
-    result = query(sql)
+    todo_query = "SELECT name FROM todos WHERE list_id = $1"
+    list_result = query(sql)
+    todo_result = query(sql)
 
-    result.map do |tuple|
-      {id: tuple["id"], name: tuple["name"], todos: []}
+    list_result.map do |tuple|
+      list_id = tuple["id"]
+      {id: list_id, name: tuple["name"], todos: query_todos(list_id)}
     end
   end
 
-  def success_list_removal
-    # session[:success] = "The list has been successfully deleted."
-  end
-
-  def set_session_success_message(message)
-    # session[:success] = message
-  end
-
-  def set_session_error_message(error)
-    # session[:error] = error
-  end
-
   def delete_todo_list(id)
-    # session[:lists].reject! { |list| list[:id] == id }
+    sql = "DELETE FROM lists WHERE id = $1"
+    query(sql, id)
   end
 
-  def create_new_todo_list(list_name)
-    # id = next_element_id(@session[:lists])
-    # session[:lists] << { id: id, name: list_name, todos: [] }
+  def create_new_todo_list(*list_name)
+    sql = "INSERT INTO lists (name) VALUES ($1)"
+    db.exec_params(sql, list_name)
   end
 
   def update_list_name(id, new_name)
-    # list = find_list(id)
-    # list[:name] = new_name
+    sql = "UPDATE lists SET name = $1 WHERE id = $2"
+    query(sql, new_name, id)
   end
 
   def create_new_todo(list_id, todo_name)
-    # list = find_list(list_id)
-    # id = next_element_id(list[:todos])
-    # list[:todos] << { id: id, name: todo_name, completed: false }
+    sql = "INSERT INTO todos (list_id, name) VALUES ($1, $2)"
+    query(sql, list_id, todo_name)
   end
 
   def delete_todo_from_list(list_id, todo_id)
-    # list = find_list(list_id)
-    # list[:todos].reject! { |todo| todo[:id] == todo_id }
+    sql = "DELETE FROM todos WHERE list_id = $1 AND id = $2"
+    query(sql, list_id, todo_id)
   end
 
   def update_todo_status(list_id, todo_id, new_status)
-    # list = find_list(list_id)
-    # todo = list[:todos].find { |todo| todo[:id] == todo_id }
-    # todo[:completed] = new_status
+    sql = "UPDATE todos SET completed = $1 WHERE list_id = $2 AND id = $3"
+    query(sql, new_status, list_id, todo_id)
   end
 
   def mark_all_todos_complete(list_id)
-    # list = find_list(list_id)
-    # list[:todos].each do |todo|
-    #   todo[:completed] = true
-    # end
+    sql = "UPDATE todos SET completed = true WHERE list_id = $1"
+    query(sql, list_id)
   end
 
   private
@@ -78,6 +66,20 @@ class DatabasePersistence
   def query(statement, *params)
     logger.info("#{statement}: #{params}")
     db.exec_params(statement, params)
+  end
+
+  def query_todos(*list_id)
+    sql = "SELECT * FROM todos WHERE list_id = $1"
+    result = db.exec_params(sql, list_id)
+    result.map do |todo_tuple|
+      completed = todo_tuple["completed"] == "t"
+
+      {id: todo_tuple["id"],
+        name: todo_tuple["name"],
+        completed: completed,
+        list_id: todo_tuple["list_id"]
+      }
+    end
   end
 
   attr_reader :db, :logger

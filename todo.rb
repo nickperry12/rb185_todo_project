@@ -1,5 +1,4 @@
 require "sinatra"
-require "sinatra/reloader" if development?
 require "sinatra/content_for"
 require "tilt/erubis"
 
@@ -11,36 +10,58 @@ configure do
   set :erb, :escape_html => true
 end
 
+configure(:development) do
+  require "sinatra/reloader"
+  also_reload "database_persistence.rb"
+end
+
 helpers do
-  def list_complete?(list)
-    # todos_count(list) > 0 && todos_remaining_count(list) == 0
-    list[:todos].all? { |todo| todo[:completed] == true } && todos_count(list) > 0
+  def success_list_removal
+    session[:success] = "The list has been successfully deleted."
+  end
+
+  def set_session_success_message(message)
+    session[:success] = message
+  end
+
+  def set_session_error_message(error)
+    session[:error] = error
+  end
+
+  def all_todos_completed?(list)
+    list.all? { |todo| todo[:completed] == true } && list.size > 0
   end
 
   def list_class(list)
-    "complete" if list_complete?(list)
+    "complete" if all_todos_completed?(list)
   end
 
-  def todos_count(list)
-    list[:todos].size
+  # displays the number of completed todos out of the total todos
+  def display_num_completed_todos(list)
+    num_completed = list.select { |todo| todo[:completed] == true }.size
+    total_todos = list.size
+
+    "#{num_completed}/#{total_todos}"
   end
 
-  def todos_remaining_count(list)
-    list[:todos].select { |todo| todo[:completed] == true }.size
+  # sorts the todos lists by those that are completed
+  def sort_list_of_todos(list)
+    list.sort_by do |list|
+      all_todos_completed?(list[:todos]) ? 0 : 1
+    end
   end
 
-  def sort_lists(lists, &block)
-    complete_lists, incomplete_lists = lists.partition { |list| list_complete?(list) }
+  def sort_todo_list_by_completed!(list)
+    list[:todos].sort_by! do |todo|
+      todo[:completed] == true ? 0 : 1
+    end
 
-    incomplete_lists.each(&block)
-    complete_lists.each(&block)
+    list
   end
 
-  def sort_todos(todos, &block)
-    complete_todos, incomplete_todos = todos.partition { |todo| todo[:completed] }
-
-    incomplete_todos.each(&block)
-    complete_todos.each(&block)
+  # checks to see if all todos are completed
+  def all_todos_completed?(list)
+    list.all? { |todo| todo[:completed] == true } && list.size > 0
   end
 end
 
@@ -49,7 +70,7 @@ def load_list(id)
   return list if list
   error_msg = "The specified list was not found."
 
-  @storage.set_session_error_message(error_msg)
+  set_session_error_message(error_msg)
   redirect "/lists"
 end
 
@@ -94,12 +115,12 @@ post "/lists" do
 
   error = error_for_list_name(list_name)
   if error
-    @storage.set_session_error_message(error)
+    set_session_error_message(error)
     erb :new_list, layout: :layout
   else
     success = "The list has been created"
     @storage.create_new_todo_list(list_name)
-    @storage.set_session_success_message(success)
+    set_session_success_message(success)
     redirect "/lists" 
   end
 end
@@ -126,12 +147,12 @@ post "/lists/:id" do
 
   error = error_for_list_name(list_name)
   if error
-    @storage.set_session_error_message(error)
+    set_session_error_message(error)
     erb :edit_list, layout: :layout
   else
     @storage.update_list_name(id, list_name)
     success = "The list has been updated."
-    @storage.set_session_success_message(success)
+    set_session_success_message(success)
     redirect "/lists/#{id}"
   end
 end
@@ -141,7 +162,7 @@ post "/lists/:id/destroy" do
   id = params[:id].to_i
   success = "The list has been deleted."
   @storage.delete_todo_list(id)
-  @storage.set_session_success_message(success)
+  set_session_success_message(success)
 
   if env["HTTP_X_REQUESTED_WITH"] == "XMLHttpRequest"
     "/lists"
@@ -158,12 +179,12 @@ post "/lists/:list_id/todos" do
 
   error = error_for_todo(todo_name)
   if error
-    @storage.set_session_error_message(error)
+    set_session_error_message(error)
     erb :list, layout: :layout
   else
     success = "The todo was added."
     @storage.create_new_todo(@list_id, todo_name)
-    @storage.set_session_success_message(success)
+    set_session_success_message(success)
     redirect "/lists/#{@list_id}"
   end
 end
@@ -180,7 +201,7 @@ post "/lists/:list_id/todos/:id/destroy" do
     status 204
   else
     success = "The todo has been deleted."
-    @storage.set_session_success_message(success)
+    set_session_success_message(success)
     redirect "/lists/#{@list_id}"
   end
 end
@@ -195,7 +216,7 @@ post "/lists/:list_id/todos/:id" do
   is_completed = params[:completed] == "true"
   @storage.update_todo_status(@list_id, todo_id, is_completed)
 
-  @storage.set_session_success_message(success)
+  set_session_success_message(success)
   redirect "/lists/#{@list_id}"
 end
 
@@ -207,6 +228,6 @@ post "/lists/:id/complete_all" do
 
   @storage.mark_all_todos_complete(@list_id)
 
-  @storage.set_session_success_message(success)
+  set_session_success_message(success)
   redirect "/lists/#{@list_id}"
 end
